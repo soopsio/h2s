@@ -36,7 +36,7 @@ h2s -s "socks5.com:8388" -P "0.0.0.0:8088" -b "0.0.0.0" -l 1080
 终端下执行
 
 ```bash
-root@hostname https_proxy=127.0.0.1:8088 http_proxy=127.0.0.1:8088 curl -v ip.cn
+ ~  https_proxy=127.0.0.1:8088 http_proxy=127.0.0.1:8088 curl -Lv ip.cn
 * Rebuilt URL to: ip.cn/
 *   Trying 127.0.0.1...
 * TCP_NODELAY set

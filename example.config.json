@@ -1,9 +1,12 @@
 {
-    "server":"example.com",
-    "server_port":8389,
-    "local_port":1080,
-    "password":"xxxx",
-    "timeout":1,
-	"http_proxy":"0.0.0.0:8088",
-    "method":"aes-256-cfb"
+    "ss":{
+        "server":"example.com",
+        "server_port":443,
+        "local_port":1080,
+        "local_address":"127.0.0.1",
+        "password":"barfoo!",
+        "method": "aes-128-cfb",
+        "timeout":600
+    },
+    "http_proxy":"0.0.0.0:8088"
 }

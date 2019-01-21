@@ -2,19 +2,22 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
 	"os"
 	"path"
+	"reflect"
 	"strconv"
 	"time"
 
-	ss "shadowsocks-go/shadowsocks"
+	ss "github.com/shadowsocks/shadowsocks-go/shadowsocks"
 )
 
 var debug ss.DebugLog
@@ -156,12 +159,74 @@ type ServerCipher struct {
 	cipher *ss.Cipher
 }
 
+type Config struct {
+	ss.Config   `json:"ss"`
+	Gfw         string `json:"gfw"`
+	Fgfw        string `json:"fgfw"`
+	HttpProxy   string `json:"http_proxy"`
+	readTimeout time.Duration
+}
+
+func (c *Config) ParseConfig(f string) error {
+	file, err := os.Open(f) // For read access.
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	data, err := ioutil.ReadAll(file)
+	if err != nil {
+		return err
+	}
+
+	if err = json.Unmarshal(data, c); err != nil {
+		return err
+	}
+
+	c.readTimeout = time.Duration(c.Timeout) * time.Second
+	return nil
+}
+
+// Useful for command line to override options specified in config file
+// Debug is not updated.
+func (c *Config) UpdateConfig(new *Config) {
+	// Using reflection here is not necessary, but it's a good exercise.
+	// For more information on reflections in Go, read "The Laws of Reflection"
+	// http://golang.org/doc/articles/laws_of_reflection.html
+	newVal := reflect.ValueOf(new).Elem()
+	oldVal := reflect.ValueOf(c).Elem()
+	// typeOfT := newVal.Type()
+	for i := 0; i < newVal.NumField(); i++ {
+		newField := newVal.Field(i)
+		oldField := oldVal.Field(i)
+		switch newField.Kind() {
+		case reflect.Interface:
+			if fmt.Sprintf("%v", newField.Interface()) != "" {
+				oldField.Set(newField)
+			}
+		case reflect.String:
+			s := newField.String()
+			if s != "" {
+				oldField.SetString(s)
+			}
+		case reflect.Int:
+			i := newField.Int()
+			if i != 0 {
+				oldField.SetInt(i)
+			}
+		}
+	}
+
+	c.Timeout = new.Timeout
+	c.readTimeout = time.Duration(c.Timeout) * time.Second
+}
+
 var servers struct {
 	srvCipher []*ServerCipher
 	failCnt   []int // failed connection count
 }
 
-func parseServerConfig(config *ss.Config) {
+func parseServerConfig(config *Config) {
 	hasPort := func(s string) bool {
 		_, port, err := net.SplitHostPort(s)
 		if err != nil {
@@ -328,8 +393,12 @@ func handleConnection(conn net.Conn) {
 		}
 	}()
 
-	go ss.PipeThenClose(conn, remote)
-	ss.PipeThenClose(remote, conn)
+	go ss.PipeThenClose(conn, remote, func(i int) {
+		return
+	})
+	ss.PipeThenClose(remote, conn, func(i int) {
+		return
+	})
 	closed = true
 	debug.Println("closed connection to", addr)
 }
@@ -350,7 +419,7 @@ func run(listenAddr string) {
 	}
 }
 
-func enoughOptions(config *ss.Config) bool {
+func enoughOptions(config *Config) bool {
 	return config.Server != nil && config.ServerPort != 0 &&
 		config.Password != ""
 }
@@ -359,7 +428,7 @@ func main() {
 	log.SetOutput(os.Stdout)
 
 	var configFile, cmdServer, cmdLocal string
-	var cmdConfig ss.Config
+	var cmdConfig Config
 	var printVer bool
 
 	flag.BoolVar(&printVer, "version", false, "print version")
@@ -396,7 +465,8 @@ func main() {
 		log.Printf("%s not found, try config file %s\n", oldConfig, configFile)
 	}
 
-	config, err := ss.ParseConfig(configFile)
+	config := &Config{}
+	err = config.ParseConfig(configFile)
 	if err != nil {
 		config = &cmdConfig
 		if !os.IsNotExist(err) {
@@ -404,11 +474,13 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		ss.UpdateConfig(config, &cmdConfig)
+		config.UpdateConfig(&cmdConfig)
 	}
+
 	if config.Method == "" {
 		config.Method = "aes-256-cfb"
 	}
+
 	if len(config.ServerPassword) == 0 {
 		if !enoughOptions(config) {
 			fmt.Fprintln(os.Stderr, "must specify server address, password and both server/local port")
@@ -426,7 +498,11 @@ func main() {
 
 	parseServerConfig(config)
 	if config.LocalPort != 0 {
-		go run(cmdLocal + ":" + strconv.Itoa(config.LocalPort))
+		if config.HttpProxy != "" {
+			go run(cmdLocal + ":" + strconv.Itoa(config.LocalPort))
+		} else {
+			run(cmdLocal + ":" + strconv.Itoa(config.LocalPort))
+		}
 	}
 	if config.HttpProxy != "" {
 		httpProxy(config.HttpProxy)

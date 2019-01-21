@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	ss "shadowsocks-go/shadowsocks"
+	ss "github.com/shadowsocks/shadowsocks-go/shadowsocks"
 )
 
 func httpProxy(addr string) {
@@ -137,7 +137,11 @@ func handleHttpProxyConn(conn net.Conn) {
 		remote.Write(later.Bytes())
 		remote.Write([]byte{'\n'})
 	}
-	go ss.PipeThenClose(conn, remote)
-	ss.PipeThenClose(remote, conn)
+	go ss.PipeThenClose(conn, remote, func(i int) {
+		return
+	})
+	ss.PipeThenClose(remote, conn, func(i int) {
+		return
+	})
 	debug.Printf("closed connection to %v:%v", hosts, ports)
 }
